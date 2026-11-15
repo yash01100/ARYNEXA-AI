@@ -1,0 +1,49 @@
+﻿# Secrets and environment files
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+**/!.env.example
+# Dependencies
+node_modules/
+**/node_modules/
+# Build files
+dist/
+build/
+coverage/
+# Logs
+*.log
+npm-debug.log*
+# Backups
+server_backup/
+client_backup/
+*.bak
+*.backup
+# OS files
+.DS_Store
+Thumbs.db
+# Project backups and temporary files
+**/*backup*/
+**/*.bak
+**/*.backup
+**/*.before-*
+**/*.step1-backup
+**/*.table-backup
+**/*.ui-backup
+**/*.voice-backup*
+**/*.history-backup
+**/*.upload-backup*
+**/*.encoding-corrupted-backup
+# Temporary uploads and test files
+server/uploads/
+server/test.pdf
+server/test.txt
+server/test-image.js
+server/test-hf-image.js
+# All remaining backup variants
+**/*.before-*
+**/*backup*
+**/*.step1-backup
+**/*.table-backup
+**/*.ui-backup
