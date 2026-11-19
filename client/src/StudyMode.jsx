@@ -2,17 +2,24 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 const API = "http://localhost:5050/api";
-function StudyMode() {
+function StudyMode({ onSave, chatId }) {
   const [topic, setTopic] = useState("");
   const [result, setResult] = useState("");
+  const [studyMessages, setStudyMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const generate = async (type) => {
     if (!topic.trim() || loading) return;
+    const topicText = topic.trim();
+    const labels = {
+      notes: "Study Notes",
+      mcqs: "Practice MCQs",
+      revision: "Quick Revision"
+    };
     const prompts = {
-      notes: `Create clear, exam-oriented study notes on "${topic.trim()}". Include headings, definitions, examples, key points and a short summary. Explain in beginner-friendly Hinglish.`,
-      mcqs: `Create 10 exam-oriented MCQs on "${topic.trim()}". Give four options A, B, C, D for each question, the correct answer and a short explanation.`,
-      revision: `Create a quick revision sheet on "${topic.trim()}". Include key concepts, definitions, formulas where applicable, important exam questions and a concise recap. Explain in beginner-friendly Hinglish.`
+      notes: `Create clear, exam-oriented study notes on "${topicText}". Include headings, definitions, examples, key points and a short summary. Explain in beginner-friendly Hinglish.`,
+      mcqs: `Create 10 exam-oriented MCQs on "${topicText}". Give four options A, B, C, D for each question, the correct answer and a short explanation.`,
+      revision: `Create a quick revision sheet on "${topicText}". Include key concepts, definitions, formulas where applicable, important exam questions and a concise recap. Explain in beginner-friendly Hinglish.`
     };
     setLoading(true);
     setError("");
@@ -20,18 +27,29 @@ function StudyMode() {
     try {
       const response = await fetch(`${API}/chat`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          chatId: `study-${Date.now()}`,
+          chatId: chatId || `study-${Date.now()}`,
           message: prompts[type],
           mode: "study"
         })
       });
       const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || `Request failed: ${response.status}`);
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || data.message || `Request failed: ${response.status}`);
       }
-      setResult(data.answer || "No answer received. Please try again.");
+      const answer = data.answer || "No answer received. Please try again.";
+      setResult(answer);
+      const updatedMessages = [
+        ...studyMessages,
+        { role: "user", text: `${labels[type]}: ${topicText}` },
+        { role: "assistant", text: answer }
+      ];
+      setStudyMessages(updatedMessages);
+      if (onSave && chatId) {
+        onSave(updatedMessages, chatId);
+      }
     } catch (err) {
       setError(err.message || "Backend connection failed.");
     } finally {
@@ -85,4 +103,3 @@ function StudyMode() {
   );
 }
 export default StudyMode;
-

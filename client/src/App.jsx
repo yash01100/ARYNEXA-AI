@@ -1,9 +1,10 @@
-import ReactMarkdown from "react-markdown";
+﻿import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
 import StudyMode from "./StudyMode";
 import CreateImage from "./CreateImage";
+import AuthScreen from "./AuthScreen";
 
 const API = "http://localhost:5050/api";
 
@@ -11,6 +12,64 @@ const createChatId = () =>
   `${Date.now()}-${Math.random().toString(36).slice(2)}-${crypto.randomUUID()}`;
 
 function App() {
+  const [authUser, setAuthUser] = useState(null);
+  const [isGuest, setIsGuest] = useState(() => sessionStorage.getItem("arynexa_guest_mode") === "true");
+  const [authLoading, setAuthLoading] = useState(true);
+  useEffect(() => {
+    let active = true;
+    fetch(`${API}/auth/me`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = await response.json();
+        return data.user || null;
+      })
+      .then((user) => {
+        if (active) {
+          if (user) sessionStorage.removeItem("arynexa_guest_mode");
+          setAuthUser(user);
+          setIsGuest(!user && sessionStorage.getItem("arynexa_guest_mode") === "true");
+        }
+      })
+      .catch((error) => {
+        console.error("Session check failed:", error);
+        if (active) setAuthUser(null);
+      })
+      .finally(() => {
+        if (active) setAuthLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  const handleGuest = () => {
+    sessionStorage.setItem("arynexa_guest_mode", "true");
+    setAuthUser(null);
+    setIsGuest(true);
+    setMessages([]); setMessage(""); setMode("chat"); setDocumentName("");
+  };
+  const handleLogin = (user) => {
+    sessionStorage.removeItem("arynexa_guest_mode");
+    setIsGuest(false); setAuthUser(user);
+  };
+  const handleLogout = async () => {
+    if (isGuest) {
+      sessionStorage.removeItem("arynexa_guest_mode");
+      sessionStorage.removeItem("arynexa_guest_history");
+      setIsGuest(false); setHistory([]); setMessages([]); setMessage("");
+      setMode("chat"); setDocumentName("");
+      return;
+    }
+    try {
+      await fetch(`${API}/auth/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout request failed:", error);
+    } finally {
+      setAuthUser(null);
+    }
+  };
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -27,40 +86,105 @@ function App() {
   });
   const recognitionRef = useRef(null);
 
-  const [history, setHistory] = useState(() => {
-    try {
-      const saved = localStorage.getItem("arynexa_history");
-      if (!saved) return [];
-
-      const parsed = JSON.parse(saved);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch (error) {
-      console.error("History load error:", error);
-      return [];
-    }
-  });
-
-  const [currentChatId, setCurrentChatId] = useState(() =>
-    createChatId()
-  );
-
+  const [history, setHistory] = useState([]);
+  const [historyOwner, setHistoryOwner] = useState(null);
+  const activeHistoryOwner = authUser
+    ? `account:${authUser.id}`
+    : isGuest ? "guest" : null;
+  const [currentChatId, setCurrentChatId] = useState(() => createChatId());
   const currentChatIdRef = useRef(currentChatId);
-
   useEffect(() => {
     currentChatIdRef.current = currentChatId;
   }, [currentChatId]);
-
+  // Load account history from MongoDB; guest history remains session-only.
   useEffect(() => {
+    if (authLoading || !activeHistoryOwner) return;
+    let active = true;
+    const loadHistory = async () => {
+      try {
+        let chats = [];
+        if (activeHistoryOwner === "guest") {
+          const parsed = JSON.parse(
+            sessionStorage.getItem("arynexa_guest_history") || "[]"
+          );
+          chats = Array.isArray(parsed) ? parsed : [];
+        } else {
+          const response = await fetch(`${API}/history`, {
+            credentials: "include"
+          });
+          if (!response.ok) {
+            throw new Error(`History load failed (${response.status})`);
+          }
+          const data = await response.json();
+          chats = Array.isArray(data.chats) ? data.chats : [];
+          localStorage.setItem(
+            `arynexa_history_${authUser.id}`,
+            JSON.stringify(chats)
+          );
+        }
+        if (active) {
+          setHistory(chats);
+          setHistoryOwner(activeHistoryOwner);
+        }
+      } catch (error) {
+        console.error("History load failed:", error);
+        if (active && activeHistoryOwner.startsWith("account:")) {
+          const accountId = activeHistoryOwner.slice("account:".length);
+          let cached = [];
+          try {
+            const parsed = JSON.parse(
+              localStorage.getItem(`arynexa_history_${accountId}`) || "[]"
+            );
+            cached = Array.isArray(parsed) ? parsed : [];
+          } catch {
+            cached = [];
+          }
+          setHistory(cached);
+          setHistoryOwner(activeHistoryOwner);
+        }
+      }
+    };
+    loadHistory();
+    return () => {
+      active = false;
+    };
+  }, [authLoading, activeHistoryOwner]);
+  // Save only after the matching owner has finished loading.
+  useEffect(() => {
+    if (!activeHistoryOwner || historyOwner !== activeHistoryOwner) return;
+    if (activeHistoryOwner === "guest") {
+      try {
+        sessionStorage.setItem(
+          "arynexa_guest_history",
+          JSON.stringify(history)
+        );
+      } catch (error) {
+        console.error("Guest history save failed:", error);
+      }
+      return;
+    }
+    const accountId = activeHistoryOwner.slice("account:".length);
     try {
       localStorage.setItem(
-        "arynexa_history",
+        `arynexa_history_${accountId}`,
         JSON.stringify(history)
       );
     } catch (error) {
-      console.error("History save error:", error);
+      console.error("Account history cache failed:", error);
     }
-  }, [history]);
-
+    fetch(`${API}/history`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ chats: history })
+    }).then(response => {
+      if (!response.ok) {
+        throw new Error(`History save failed (${response.status})`);
+      }
+    }).catch(error => {
+      console.error("MongoDB history save failed:", error);
+    });
+  }, [history, historyOwner, activeHistoryOwner]);
   // ================= SAVE CHAT =================
 
   const saveHistory = (msgs, chatId) => {
@@ -101,12 +225,6 @@ function App() {
         updatedChat,
         ...otherChats
       ].slice(0, 50);
-
-      localStorage.setItem(
-        "arynexa_history",
-        JSON.stringify(newHistory)
-      );
-
       return newHistory;
     });
   };
@@ -128,10 +246,11 @@ function App() {
       const response = await fetch(`${API}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           chatId,
           message: userMessage,
-          mode,
+          mode: isGuest ? "chat" : mode,
           history: messages
             .filter((msg) =>
               ["user", "assistant"].includes(msg.role) &&
@@ -172,6 +291,7 @@ function App() {
   };  // ================= UPLOAD =================
 
   const uploadDocument = async (file) => {
+    if (isGuest) return;
     if (!file) return;
     const formData = new FormData();
     formData.append("document", file);
@@ -184,14 +304,14 @@ function App() {
     };
     appendAndSave({ role: "assistant", text: `Uploading "${file.name}"...` });
     try {
-      const response = await fetch(`${API}/upload`, { method: "POST", body: formData });
+      const response = await fetch(`${API}/upload`, { method: "POST", credentials: "include", body: formData });
       const data = await response.json();
       if (data.success) {
         setDocumentName(data.fileName);
         appendAndSave({
           role: "assistant",
           text: data.type === "image"
-            ? `📄 "${data.fileName}" uploaded successfully. You can now ask ARYNEXA about this image.`
+            ? `[Image] "${data.fileName}" uploaded successfully. You can now ask ARYNEXA about this image.`
             : `"${data.fileName}" uploaded successfully. You can now ask questions about this document.`
         });
       } else {
@@ -238,26 +358,30 @@ function App() {
   // ================= CLEAR HISTORY =================
 
   const clearHistory = () => {
-    localStorage.removeItem(
-      "arynexa_history"
-    );
-
+    if (isGuest) {
+      sessionStorage.removeItem("arynexa_guest_history");
+    } else if (authUser) {
+      localStorage.removeItem(`arynexa_history_${authUser.id}`);
+      fetch(`${API}/history`, {
+        method: "DELETE",
+        credentials: "include"
+      }).catch(error => {
+        console.error("MongoDB history clear failed:", error);
+      });
+    }
     setHistory([]);
-
     const newId = createChatId();
-
     currentChatIdRef.current = newId;
-
     setCurrentChatId(newId);
     setMessages([]);
     setMessage("");
     setDocumentName("");
     setMode("chat");
   };
-
-  // ================= MODE =================
+  // ================= MODE =================  // ================= MODE =================
 
   const selectMode = (selectedMode) => {
+    if (isGuest && selectedMode !== "chat") return;
     setMode(selectedMode);
 
     const modeNames = {
@@ -384,7 +508,12 @@ function App() {
   }, []);
   // ================= UI =================
 
-  return (
+  if (authLoading) {
+    return <div className="auth-loading">Loading ARYNEXA AI...</div>;
+  }
+  if (!authUser && !isGuest) {
+    return <AuthScreen api={API} onLogin={handleLogin} onGuest={handleGuest} />;
+  }  return (
     <div className="app">
 
       {/* SIDEBAR */}
@@ -418,12 +547,12 @@ function App() {
               selectMode("chat")
             }
           >
-            ● Chat
+            Chat
           </div>
 
-          <label className="nav-item">
+          {!isGuest && <label className="nav-item">
 
-            ▤ Documents
+            Documents
 
             <input
               type="file"
@@ -438,9 +567,9 @@ function App() {
               }}
             />
 
-          </label>
+          </label>}
 
-          <div
+          {!isGuest && <div
             className={`nav-item ${
               mode === "study" ? "active" : ""
             }`}
@@ -448,10 +577,10 @@ function App() {
               selectMode("study")
             }
           >
-            ▦ Study
-          </div>
+            Study
+          </div>}
 
-          <div
+          {!isGuest && <div
             className={`nav-item ${
               mode === "coding" ? "active" : ""
             }`}
@@ -460,9 +589,9 @@ function App() {
             }
           >
             Coding
-          </div>
+          </div>}
 
-          <div
+          {!isGuest && <div
             className={`nav-item ${
               mode === "tasks" ? "active" : ""
             }`}
@@ -470,23 +599,23 @@ function App() {
               selectMode("tasks")
             }
           >
-            ✓ Tasks
-          </div>
+            Tasks
+          </div>}
 
-          <div
+          {!isGuest && <div
             className={`nav-item ${
               mode === "create-image" ? "active" : ""
             }`}
             onClick={() => selectMode("create-image")}
           >
             Create Image
-          </div>          <button
+          </div>}          {!isGuest && <button
             type="button"
             className="nav-item settings-nav-button"
             onClick={() => setShowSettings(true)}
           >
             Settings
-          </button>
+          </button>}
 
         </nav>
 
@@ -531,7 +660,7 @@ function App() {
                   loadChat(chat)
                 }
               >
-                ● {chat.title}
+                {chat.title.replace(/^\s*\d+[.)]\s*/, "")}
               </button>
 
             ))}
@@ -549,18 +678,19 @@ function App() {
           </div>
 
           <div>
-            <strong>
-              Yash
-            </strong>
-
-            <small>
-              Personal Account
-            </small>
+            <strong>{isGuest ? "Guest" : (authUser?.name || "Account")}</strong>
+            <small>{isGuest ? "Temporary text-chat session" : (authUser?.email || "Personal Account")}</small>
           </div>
 
         </div>
 
-      </aside>
+        <button
+          type="button"
+          className="auth-logout-button"
+          onClick={handleLogout}
+        >
+          {isGuest ? "Exit Guest" : "Log Out"}
+        </button>      </aside>
 
       {/* MAIN */}
 
@@ -658,8 +788,8 @@ function App() {
         )}
         { /* CHAT AREA */ }
 
-        {mode === "study" && <StudyMode />}
-        {mode === "create-image" && <CreateImage />}
+        {!isGuest && mode === "study" && <StudyMode onSave={saveHistory} chatId={currentChatIdRef.current} />}
+        {!isGuest && mode === "create-image" && <CreateImage onSave={saveHistory} chatId={currentChatIdRef.current} />}
         <section className="chat-area" style={{ display: mode === "study" || mode === "create-image" ? "none" : undefined }}>
 
           {messages.length === 0 && (
@@ -671,49 +801,52 @@ function App() {
               </div>
 
               <h2>
-                Hello, Yash!
+                {isGuest ? "Welcome, Guest!" : `Hello, ${authUser?.name?.trim()?.split(/\s+/)[0] || "there"}!`}
               </h2>
 
               <p>
-                I'm ARYNEXA, your personal AI assistant.
+                {isGuest ? "Try ARYNEXA with temporary text chat." : "I'm ARYNEXA, your personal AI assistant."}
               </p>
 
-              <div className="suggestions">
-
-                <button
-                  onClick={() => {
-                    setMode("study");
-
-                    setMessage(
-                      "Explain this topic in simple words"
-                    );
-                  }}
-                >
-                  📚 Explain a topic
+              <div className="suggestions welcome-feature-grid">
+                <button className="welcome-feature-card" onClick={() => {
+                  setMode("study");
+                  setMessage("Explain this topic in simple words");
+                }}>
+                  <span className="welcome-feature-icon">📚</span>
+                  <span className="welcome-feature-content">
+                    <strong>Learning</strong>
+                    <small>Understand topics, get notes and practice</small>
+                  </span>
                 </button>
-
-                <button
-                  onClick={() => {
-                    setMode("coding");
-
-                    setMessage(
-                      "Help me solve this coding problem"
-                    );
-                  }}
-                >
-                  Help with coding
+                <button className="welcome-feature-card" onClick={() => {
+                  setMode("coding");
+                  setMessage("Help me solve this coding problem");
+                }}>
+                  <span className="welcome-feature-icon">💻</span>
+                  <span className="welcome-feature-content">
+                    <strong>Coding</strong>
+                    <small>Write code, debug errors and solve problems</small>
+                  </span>
                 </button>
-
-                <button
-                  onClick={() =>
-                    setMessage(
-                      "Summarize my document"
-                    )
-                  }
-                >
-                  📝 Summarize document
+                <button className="welcome-feature-card" onClick={() => {
+                  setMessage("Help me write or improve a document");
+                }}>
+                  <span className="welcome-feature-icon">✍️</span>
+                  <span className="welcome-feature-content">
+                    <strong>Writing & Documents</strong>
+                    <small>Draft, improve or summarize content</small>
+                  </span>
                 </button>
-
+                <button className="welcome-feature-card" onClick={() => {
+                  setMode("create-image");
+                }}>
+                  <span className="welcome-feature-icon">🎨</span>
+                  <span className="welcome-feature-content">
+                    <strong>Image Creation</strong>
+                    <small>Create images from your ideas</small>
+                  </span>
+                </button>
               </div>
 
             </div>
@@ -750,9 +883,20 @@ function App() {
 
                     </strong>
 
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-  {msg.text || ""}
-</ReactMarkdown>
+                    {msg.role === "user" ? (
+                      <p>{msg.text || ""}</p>
+                    ) : (
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {msg.text || ""}
+                      </ReactMarkdown>
+                    )}
+                    {msg.image && (
+                      <img
+                        src={msg.image}
+                        alt="Saved AI generated image"
+                        style={{ maxWidth: "100%", borderRadius: "12px", marginTop: "12px" }}
+                      />
+                    )}
 
                   </div>
 
@@ -796,14 +940,14 @@ function App() {
           {documentName && (
 
             <div className="document-status">
-              📄 {documentName}
+              [Image] {documentName}
             </div>
 
           )}
 
           <div className="input-box">
 
-            <label className="upload-button">
+            {!isGuest && <label className="upload-button">
 
               &#128206;
 
@@ -822,7 +966,7 @@ function App() {
                 }}
               />
 
-            </label>
+            </label>}
 
             <input
               type="text"
@@ -842,6 +986,7 @@ function App() {
               }}
             />
 
+            {!isGuest && <>
             <button
               type="button"
               className={`voice-button${isListening ? " voice-active" : ""}`}
@@ -849,7 +994,7 @@ function App() {
               title={isListening ? "Stop listening" : "Speak your message"}
               aria-label={isListening ? "Stop listening" : "Speak your message"}
             >
-              {isListening ? "■" : "🎙"}
+              {isListening ? "Stop" : "Mic"}
             </button>
             <button
               type="button"
@@ -858,19 +1003,20 @@ function App() {
               title={isSpeaking ? "Stop speaking" : "Listen to latest AI answer"}
               aria-label={isSpeaking ? "Stop speaking" : "Listen to latest AI answer"}
             >
-              {isSpeaking ? "■" : "🔊"}
-            </button>            <button
+              {isSpeaking ? "Stop" : "Listen"}
+            </button></>}
+            <button
               className="send-button"
               onClick={sendMessage}
               disabled={loading}
             >
-              ➤
+              Send
             </button>
 
           </div>
 
           {/* VOICE STATUS UI */}
-          {(isListening || isSpeaking || voiceError) && (
+          {!isGuest && (isListening || isSpeaking || voiceError) && (
             <p
               className={`voice-status${voiceError ? " voice-error" : ""}`}
               role={voiceError ? "alert" : "status"}
@@ -892,6 +1038,16 @@ function App() {
 }
 
 export default App;
+
+
+
+
+
+
+
+
+
+
 
 
 

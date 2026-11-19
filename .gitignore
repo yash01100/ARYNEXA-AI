@@ -49,3 +49,6 @@ server/test-hf-image.js
 **/*.ui-backup
 # Pre-chat-context backup files
 **/*.pre-chat-context-*
+
+# Local chat-history backup
+/chat-history-before-patch-20261119-160652/

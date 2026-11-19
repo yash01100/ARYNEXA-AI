@@ -5,17 +5,21 @@ const multer = require("multer");
 const pdfParse = require("pdf-parse");
 const mammoth = require("mammoth");
 const Groq = require("groq-sdk");
-const { connectDB } = require("./database");
+const { connectDB, getDB } = require("./database");
 const cookieParser = require("cookie-parser");
 
 dotenv.config();
 
-const { registerAuthRoutes, ensureSessionIndexes } = require("./auth");
+const { registerAuthRoutes, ensureSessionIndexes, requireAuth } = require("./auth");
 const {
   sendVerificationEmail,
   registerVerificationRoutes,
   ensureVerificationIndexes
 } = require("./emailVerification");
+const {
+  registerPasswordResetRoutes,
+  ensurePasswordResetIndexes
+} = require("./passwordReset");
 
 const app = express();
 // Per-chat document and image context
@@ -48,6 +52,7 @@ app.use(cookieParser());
 app.use(express.json({ limit: "20mb" }));
 registerAuthRoutes(app);
 registerVerificationRoutes(app);
+registerPasswordResetRoutes(app);
 
 // ===============================
 // GEMINI AI
@@ -78,7 +83,7 @@ let imageMimeType = "";
 // USER REGISTRATION
 // ===============================
 const bcrypt = require("bcryptjs");
-const { getDB } = require("./database");
+
 app.post("/api/auth/register", async (req, res) => {
   try {
     const name = String(req.body?.name || "").trim();
@@ -180,7 +185,7 @@ app.get("/api/health", (req, res) => {
 // ===============================
 // DOCUMENT / IMAGE UPLOAD
 // ===============================
-app.post("/api/upload", upload.single("document"), async (req, res) => {
+app.post("/api/upload", requireAuth, upload.single("document"), async (req, res) => {
   try {
     const chatId = String(req.body?.chatId || "").trim();
     if (!chatId) {
@@ -495,7 +500,7 @@ If the answer is not present in the document, clearly say that.
 // ===============================
 // ===============================
 // HINGLISH IMAGE PROMPT ENHANCEMENT
-app.post("/api/image/enhance-prompt", async (req, res) => {
+app.post("/api/image/enhance-prompt", requireAuth, async (req, res) => {
   try {
     const prompt = String(req.body?.prompt || "").trim();
     if (!prompt || prompt.length > 1500) {
@@ -621,7 +626,7 @@ async function callCloudflareImage({ prompt, imageFile }) {
   };
 }
 // TEXT TO IMAGE
-app.post("/api/image/generate", async (req, res) => {
+app.post("/api/image/generate", requireAuth, async (req, res) => {
   try {
     const prompt = String(req.body?.prompt || "").trim();
     if (!prompt || prompt.length > 2000) {
@@ -647,6 +652,7 @@ app.post("/api/image/generate", async (req, res) => {
 // IMAGE TO IMAGE EDITING
 app.post(
   "/api/image/edit",
+  requireAuth,
   upload.single("image"),
   async (req, res) => {
     try {
@@ -692,7 +698,92 @@ app.post(
     }
   }
 );
-// NEW CHAT
+// ===============================
+// ACCOUNT CHAT HISTORY (MongoDB)
+// ===============================
+app.get("/api/history", requireAuth, async (req, res) => {
+  try {
+    const record = await getDB().collection("chat_history").findOne({
+      userId: req.userId
+    });
+    res.json({ success: true, chats: record?.chats || [] });
+  } catch (error) {
+    console.error("CHAT HISTORY LOAD ERROR:", error.message);
+    res.status(500).json({ success: false, message: "Could not load chat history." });
+  }
+});
+app.put("/api/history", requireAuth, async (req, res) => {
+  try {
+    const chats = req.body?.chats;
+    if (!Array.isArray(chats) || chats.length > 50) {
+      return res.status(400).json({ success: false, message: "Invalid chat history." });
+    }
+    const safeChats = chats.map(chat => {
+      if (
+        !chat ||
+        typeof chat.id !== "string" ||
+        !chat.id.trim() ||
+        !Array.isArray(chat.messages) ||
+        chat.messages.length > 500
+      ) {
+        throw new Error("Invalid chat entry.");
+      }
+      const messages = chat.messages.map(message => {
+        if (
+          !message ||
+          !["user", "assistant"].includes(message.role) ||
+          typeof message.text !== "string" ||
+          message.text.length > 100000
+        ) {
+          throw new Error("Invalid chat message.");
+        }
+        const safeMessage = { role: message.role, text: message.text };
+        if (message.image !== undefined) {
+          if (
+            typeof message.image !== "string" ||
+            message.image.length > 1.5 * 1024 * 1024 ||
+            !/^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(message.image)
+          ) {
+            throw new Error("Invalid or oversized image preview.");
+          }
+          safeMessage.image = message.image;
+        }
+        return safeMessage;
+      });
+      return {
+        id: chat.id.slice(0, 150),
+        title: typeof chat.title === "string" ? chat.title.slice(0, 200) : "New Chat",
+        messages,
+        updatedAt: Number.isFinite(Number(chat.updatedAt)) ? Number(chat.updatedAt) : Date.now()
+      };
+    });
+    if (JSON.stringify(safeChats).length > 5 * 1024 * 1024) {
+      return res.status(413).json({ success: false, message: "Chat history is too large." });
+    }
+    if (safeChats.length === 0) {
+      await getDB().collection("chat_history").deleteOne({ userId: req.userId });
+    } else {
+      await getDB().collection("chat_history").updateOne(
+        { userId: req.userId },
+        { $set: { chats: safeChats, updatedAt: new Date() } },
+        { upsert: true }
+      );
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error("CHAT HISTORY SAVE ERROR:", error.message);
+    res.status(400).json({ success: false, message: "Could not save chat history." });
+  }
+});
+app.delete("/api/history", requireAuth, async (req, res) => {
+  try {
+    await getDB().collection("chat_history").deleteOne({ userId: req.userId });
+    res.json({ success: true });
+  } catch (error) {
+    console.error("CHAT HISTORY DELETE ERROR:", error.message);
+    res.status(500).json({ success: false, message: "Could not clear chat history." });
+  }
+});// NEW CHAT
 // ===============================
 app.post("/api/new-chat", (req, res) => {
   const chatId = String(req.body?.chatId || "").trim();
@@ -708,8 +799,10 @@ const PORT = 5050;
 async function startServer() {
   try {
     await connectDB();
+    await getDB().collection("chat_history").createIndex({ userId: 1 }, { unique: true, name: "unique_chat_history_user" });
     await ensureSessionIndexes();
     await ensureVerificationIndexes();
+    await ensurePasswordResetIndexes();
     app.listen(PORT, () => {
       console.log(`ARYNEXA AI server running on http://localhost:${PORT}`);
     });
@@ -719,4 +812,8 @@ async function startServer() {
   }
 }
 startServer();
+
+
+
+
 

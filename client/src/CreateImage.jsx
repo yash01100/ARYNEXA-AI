@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import "./CreateImage.css";
 const API = "http://localhost:5050/api";
-function CreateImage() {
+function CreateImage({ onSave, chatId }) {
   const [mode, setMode] = useState("generate");
   const [prompt, setPrompt] = useState("");
   const [file, setFile] = useState(null);
@@ -19,6 +19,26 @@ function CreateImage() {
     setFilePreview(previewUrl);
     return () => URL.revokeObjectURL(previewUrl);
   }, [file]);
+  const makeHistoryPreview = (dataUrl) =>
+    new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        const maxDimension = 640;
+        const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+        const context = canvas.getContext("2d");
+        if (!context) {
+          reject(new Error("Could not prepare image preview."));
+          return;
+        }
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL("image/webp", 0.65));
+      };
+      image.onerror = () => reject(new Error("Could not read generated image."));
+      image.src = dataUrl;
+    });
   const handleFileChange = (event) => {
     const selectedFile = event.target.files?.[0];
     if (!selectedFile) return;
@@ -46,9 +66,8 @@ function CreateImage() {
     try {
       const response = await fetch(`${API}/image/enhance-prompt`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt: prompt.trim() })
       });
       const data = await response.json();
@@ -61,7 +80,8 @@ function CreateImage() {
     } finally {
       setEnhancing(false);
     }
-  };  const generateImage = async () => {
+  };
+  const generateImage = async () => {
     if (!prompt.trim()) {
       setError("Please describe the image you want to create.");
       return;
@@ -78,9 +98,8 @@ function CreateImage() {
       if (mode === "generate") {
         response = await fetch(`${API}/image/generate`, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ prompt: prompt.trim() })
         });
       } else {
@@ -89,24 +108,36 @@ function CreateImage() {
         formData.append("image", file);
         response = await fetch(`${API}/image/edit`, {
           method: "POST",
+          credentials: "include",
           body: formData
         });
       }
       const data = await response.json();
       if (!response.ok || !data.success || !data.image) {
         throw new Error(
-          data.message ||
-          data.detail ||
-          data.error ||
+          data.message || data.detail || data.error ||
           "Image generation failed. Please try again."
         );
       }
       setGeneratedImage(data.image);
+      try {
+        const preview = await makeHistoryPreview(data.image);
+        if (onSave && chatId) {
+          onSave([
+            { role: "user", text: `${mode === "generate" ? "Image Generation" : "Image Editing"}: ${prompt.trim()}` },
+            {
+              role: "assistant",
+              text: `Image created successfully using ${data.model || "ARYNEXA AI"}.`,
+              image: preview
+            }
+          ], chatId);
+        }
+      } catch (saveError) {
+        console.error("Image history preview failed:", saveError);
+        setError("Image created, but its history preview could not be saved. Please download it.");
+      }
     } catch (err) {
-      setError(
-        err.message ||
-        "Unable to connect to ARYNEXA AI image service."
-      );
+      setError(err.message || "Unable to connect to ARYNEXA AI image service.");
     } finally {
       setLoading(false);
     }
@@ -126,19 +157,11 @@ function CreateImage() {
         </div>
       </div>
       <div className="image-mode-tabs">
-        <button
-          className={mode === "generate" ? "selected" : ""}
-          onClick={() => switchMode("generate")}
-          type="button"
-        >
-          Text to Image Text to Image
+        <button className={mode === "generate" ? "selected" : ""} onClick={() => switchMode("generate")} type="button">
+          Text to Image
         </button>
-        <button
-          className={mode === "edit" ? "selected" : ""}
-          onClick={() => switchMode("edit")}
-          type="button"
-        >
-          Edit Image Edit Image
+        <button className={mode === "edit" ? "selected" : ""} onClick={() => switchMode("edit")} type="button">
+          Edit Image
         </button>
       </div>
       <div className="image-workspace">
@@ -150,11 +173,9 @@ function CreateImage() {
             id="image-prompt"
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder={
-              mode === "generate"
-                ? "Example: A beautiful futuristic city at sunset, cinematic lighting, ultra detailed..."
-                : "Example: Change the background to a beautiful mountain landscape..."
-            }
+            placeholder={mode === "generate"
+              ? "Example: A beautiful futuristic city at sunset, cinematic lighting, ultra detailed..."
+              : "Example: Change the background to a beautiful mountain landscape..."}
             rows={5}
             disabled={loading}
           />
@@ -165,7 +186,8 @@ function CreateImage() {
             type="button"
           >
             {enhancing ? "Enhancing prompt..." : "✨ Enhance Prompt"}
-          </button>          {mode === "edit" && (
+          </button>
+          {mode === "edit" && (
             <div className="image-upload-area">
               <label htmlFor="source-image">
                 <span className="upload-symbol">+</span>
@@ -184,11 +206,7 @@ function CreateImage() {
                   <img src={filePreview} alt="Selected image preview" />
                   <div>
                     <span>{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => setFile(null)}
-                      disabled={loading}
-                    >
+                    <button type="button" onClick={() => setFile(null)} disabled={loading}>
                       Remove image
                     </button>
                   </div>
@@ -196,22 +214,14 @@ function CreateImage() {
               )}
             </div>
           )}
-          {error && (
-            <p className="image-error" role="alert">
-              {error}
-            </p>
-          )}
+          {error && <p className="image-error" role="alert">{error}</p>}
           <button
             className="generate-image-button"
             onClick={generateImage}
             disabled={loading || enhancing || !prompt.trim() || (mode === "edit" && !file)}
             type="button"
           >
-            {loading
-              ? "Creating your image..."
-              : mode === "generate"
-                ? "AI Generate Image"
-                : "AI Edit Image"}
+            {loading ? "Creating your image..." : mode === "generate" ? "AI Generate Image" : "AI Edit Image"}
           </button>
           <p className="image-model-note">
             Powered by Cloudflare FLUX 2 Klein | AI-generated images
@@ -230,15 +240,8 @@ function CreateImage() {
             </div>
           ) : generatedImage ? (
             <div className="generated-image-container">
-              <img
-                src={generatedImage}
-                alt="AI generated result"
-              />
-              <a
-                className="download-image-button"
-                href={generatedImage}
-                download="arynexa-generated-image.png"
-              >
+              <img src={generatedImage} alt="AI generated result" />
+              <a className="download-image-button" href={generatedImage} download="arynexa-generated-image.png">
                 Download Image
               </a>
             </div>
@@ -259,6 +262,3 @@ function CreateImage() {
   );
 }
 export default CreateImage;
-
-
-
