@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import "./CreateImage.css";
-const API = "http://localhost:5050/api";
+const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5050/api";
 function CreateImage({ onSave, chatId }) {
   const [mode, setMode] = useState("generate");
   const [prompt, setPrompt] = useState("");

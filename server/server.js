@@ -795,7 +795,7 @@ app.post("/api/new-chat", (req, res) => {
 });// ===============================
 // SERVER
 // ===============================
-const PORT = 5050;
+const PORT = process.env.PORT || 5050;
 async function startServer() {
   try {
     await connectDB();

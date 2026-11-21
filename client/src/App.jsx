@@ -1,4 +1,4 @@
-﻿import ReactMarkdown from "react-markdown";
+import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useEffect, useRef, useState } from "react";
 import "./App.css";
@@ -6,7 +6,7 @@ import StudyMode from "./StudyMode";
 import CreateImage from "./CreateImage";
 import AuthScreen from "./AuthScreen";
 
-const API = "http://localhost:5050/api";
+const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5050/api";
 
 const createChatId = () =>
   `${Date.now()}-${Math.random().toString(36).slice(2)}-${crypto.randomUUID()}`;
@@ -80,6 +80,7 @@ function App() {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [voiceRate, setVoiceRate] = useState(() => {
     const savedRate = Number(localStorage.getItem("arynexa_voice_rate"));
     return [0.75, 0.9, 0.92, 1, 1.25, 1.5].includes(savedRate) ? savedRate : 0.92;
@@ -383,6 +384,7 @@ function App() {
   const selectMode = (selectedMode) => {
     if (isGuest && selectedMode !== "chat") return;
     setMode(selectedMode);
+    setIsMobileSidebarOpen(false);
 
     const modeNames = {
       chat: "General Chat",
@@ -516,9 +518,13 @@ function App() {
   }  return (
     <div className="app">
 
+      {isMobileSidebarOpen && (
+        <button type="button" className="mobile-sidebar-overlay" aria-label="Close navigation menu" onClick={() => setIsMobileSidebarOpen(false)} />
+      )}
+
       {/* SIDEBAR */}
 
-      <aside className="sidebar">
+      <aside className={`sidebar ${isMobileSidebarOpen ? "mobile-open" : ""}`}>
 
         <div className="logo">
           <div className="logo-icon">
@@ -697,6 +703,7 @@ function App() {
       <main className="main">
 
         <header className="header">
+          <button type="button" className="mobile-menu-button" aria-label="Open navigation menu" aria-expanded={isMobileSidebarOpen} onClick={() => setIsMobileSidebarOpen(true)}>☰</button>
 
           <div>
 
@@ -1038,36 +1045,3 @@ function App() {
 }
 
 export default App;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -476,3 +476,162 @@
   color: #ffaaaa !important;
 }
 /* ===== END CREATE IMAGE OVERRIDES ===== */
+/* =========================================
+   CREATE IMAGE - FINAL MOBILE RESPONSIVE FIX
+   ========================================= */
+.create-image-page {
+  width: 100% !important;
+  min-width: 0 !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  padding: 24px !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+.create-image-heading {
+  display: flex !important;
+  align-items: center !important;
+  gap: 13px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  margin-bottom: 22px !important;
+}
+.create-image-heading > div:last-child {
+  min-width: 0;
+}
+.create-image-heading h2 {
+  font-size: 25px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.create-image-heading p {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.image-workspace {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+.image-controls,
+.image-result-area {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+.image-controls textarea {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+.generated-image-container,
+.generated-image-container img {
+  max-width: 100% !important;
+}
+.generated-image-container img {
+  width: 100% !important;
+  height: auto !important;
+  object-fit: contain !important;
+}
+.image-result-header {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 850px) {
+  .create-image-page {
+    padding: 18px !important;
+  }
+  .image-workspace {
+    grid-template-columns: minmax(0, 1fr) !important;
+    gap: 14px !important;
+  }
+  .image-empty-state {
+    min-height: 260px !important;
+  }
+}
+@media (max-width: 480px) {
+  .create-image-page {
+    padding: 14px 12px !important;
+  }
+  .create-image-heading {
+    align-items: flex-start !important;
+    gap: 10px !important;
+    margin-bottom: 18px !important;
+  }
+  .create-image-icon {
+    flex: 0 0 42px !important;
+    width: 42px !important;
+    height: 42px !important;
+    border-radius: 12px !important;
+    font-size: 20px !important;
+  }
+  .create-image-heading h2 {
+    font-size: 21px !important;
+    margin-bottom: 5px !important;
+  }
+  .create-image-heading p {
+    font-size: 11px !important;
+  }
+  .image-mode-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-bottom: 14px !important;
+  }
+  .image-mode-tabs button {
+    min-width: 0 !important;
+    width: 100% !important;
+    min-height: 44px !important;
+    padding: 9px 6px !important;
+    font-size: 11px !important;
+    white-space: normal !important;
+  }
+  .image-controls,
+  .image-result-area {
+    padding: 14px !important;
+    border-radius: 13px !important;
+  }
+  .image-controls textarea {
+    min-height: 115px !important;
+    font-size: 13px !important;
+  }
+  .enhance-prompt-button,
+  .generate-image-button {
+    width: 100% !important;
+    min-height: 44px !important;
+    padding: 11px !important;
+    font-size: 12px !important;
+  }
+  .image-upload-area > label {
+    padding: 14px 8px !important;
+    text-align: center !important;
+  }
+  .source-image-preview {
+    flex-wrap: wrap !important;
+  }
+  .source-image-preview img {
+    flex: 0 0 58px !important;
+    width: 58px !important;
+    height: 58px !important;
+  }
+  .image-empty-state {
+    min-height: 220px !important;
+    padding: 16px !important;
+  }
+  .image-empty-state h3 {
+    font-size: 14px !important;
+  }
+  .image-empty-state p {
+    font-size: 11px !important;
+  }
+  .image-result-header h3 {
+    font-size: 14px !important;
+  }
+  .download-image-button {
+    width: 100% !important;
+    min-height: 44px !important;
+  }
+}
+/* =========================================
+   END CREATE IMAGE MOBILE FIX
+   ========================================= */

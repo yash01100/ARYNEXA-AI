@@ -1,7 +1,7 @@
 ﻿import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-const API = "http://localhost:5050/api";
+const API = import.meta.env.VITE_API_BASE_URL || "http://localhost:5050/api";
 function StudyMode({ onSave, chatId }) {
   const [topic, setTopic] = useState("");
   const [result, setResult] = useState("");
